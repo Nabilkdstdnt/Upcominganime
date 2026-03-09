@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anime Hub 2026</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .anime-card:hover { transform: translateY(-5px); transition: all 0.3s ease; }
+        .active-tab { border-bottom: 4px solid #6366f1; color: #818cf8; }
+        .line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-200 min-h-screen font-sans">
+
+    <header class="sticky top-0 z-50 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-6 py-4">
+        <div class="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+            <h1 class="text-2xl font-black text-indigo-400 tracking-tighter">ANIME<span class="text-white">HUB</span></h1>
+            
+            <div class="flex flex-1 max-w-2xl w-full gap-2">
+                <input type="text" id="searchInput" placeholder="🔍 Search title..." 
+                    class="flex-grow bg-slate-800 border border-slate-700 rounded-lg py-2 px-4 focus:ring-2 focus:ring-indigo-500 outline-none">
+                <select id="genreFilter" class="bg-slate-800 border border-slate-700 rounded-lg px-3 text-sm outline-none">
+                    <option value="all">All Genres</option>
+                </select>
+                <button onclick="toggleWatchlistMode()" id="watchlistBtn" class="bg-slate-800 border border-slate-700 rounded-lg px-4 hover:bg-red-900/30 transition-colors">
+                    <i class="fa-solid fa-heart text-red-500"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <nav class="flex justify-center bg-slate-900 border-b border-slate-800 text-xs md:text-sm">
+        <button onclick="changeSeason('now', this)" class="px-4 md:px-8 py-4 font-bold active-tab">WINTER 2026 (CURRENT)</button>
+        <button onclick="changeSeason('upcoming', this)" class="px-4 md:px-8 py-4 font-bold text-slate-500 hover:text-white">SPRING 2026 (NEXT)</button>
+        <button onclick="changeSeason('later', this)" class="px-4 md:px-8 py-4 font-bold text-slate-500 hover:text-white">SUMMER & LATER</button>
+    </nav>
+
+    <main class="max-w-7xl mx-auto p-6">
+        <div id="anime-container" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            </div>
+    </main>
+
+    <script>
+        let allAnime = [];
+        let currentView = 'now'; // Track which tab we are on
+        let watchlist = JSON.parse(localStorage.getItem('animeWatchlist')) || [];
+        let watchlistOnly = false;
+
+        async function init() {
+            await fetchGenres();
+            await loadData('now');
+        }
+
+        async function fetchGenres() {
+            try {
+                const res = await fetch('https://api.jikan.moe/v4/genres/anime');
+                const { data } = await res.json();
+                const select = document.getElementById('genreFilter');
+                data.sort((a,b) => a.name.localeCompare(b.name)).forEach(g => {
+                    select.innerHTML += `<option value="${g.name}">${g.name}</option>`;
+                });
+            } catch(e) {}
+        }
+
+        async function loadData(type) {
+            currentView = type;
+            const container = document.getElementById('anime-container');
+            container.innerHTML = '<div class="col-span-full text-center py-20 animate-pulse text-xl font-light">📡 Syncing with Japan Servers...</div>';
+            
+            let url = type === 'now' ? 'https://api.jikan.moe/v4/seasons/now' : 
+                      type === 'upcoming' ? 'https://api.jikan.moe/v4/seasons/2026/spring' : 
+                      'https://api.jikan.moe/v4/seasons/upcoming';
+
+            try {
+                const response = await fetch(url);
+                const result = await response.json();
+                
+                // FIXED LOGIC: If we are in 'later', filter out anything starting in Spring (March/April/May)
+                if (type === 'later') {
+                    allAnime = result.data.filter(anime => {
+                        if (!anime.aired.from) return true; // Keep TBAs in later
+                        const month = new Date(anime.aired.from).getMonth();
+                        return month > 4; // Only keep shows starting June (5) or later
+                    });
+                } else {
+                    allAnime = result.data;
+                }
+                
+                applyFilters();
+            } catch (e) {
+                container.innerHTML = '<p class="col-span-full text-center text-red-500">API Limit Hit. Wait 5 seconds and refresh.</p>';
+            }
+        }
+
+        function getCountdown(dateStr) {
+            if (!dateStr) return null;
+            const releaseDate = new Date(dateStr);
+            const today = new Date();
+            if (releaseDate.getDate() === 1 && releaseDate.getMonth() === 0) return null;
+            const diffTime = releaseDate - today;
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            if (diffDays === 0) return "🔥 AIRING TODAY!";
+            if (diffDays < 0) return "📺 ALREADY AIRING";
+            return `⏳ In ${diffDays} Days`;
+        }
+
+        function generateStars(score) {
+            const rating = Math.round(parseFloat(score) || 0);
+            let stars = '';
+            for (let i = 0; i < 5; i++) {
+                stars += `<i class="fa-solid fa-star ${i < rating ? 'text-yellow-500' : 'text-slate-700'}"></i>`;
+            }
+            return stars;
+        }
+
+        function formatDate(dateStr) {
+            if (!dateStr) return "TBA 2026";
+            const date = new Date(dateStr);
+            if (date.getDate() === 1 && date.getMonth() === 0) return "TBA 2026";
+            const day = date.getDate();
+            const suffix = ["th", "st", "nd", "rd"][(day % 10 > 3 || Math.floor(day % 100 / 10) === 1) ? 0 : day % 10];
+            return `${day}${suffix} ${date.toLocaleString('default', { month: 'long' })} ${date.getFullYear()}`;
+        }
+
+        function renderAnime(list) {
+    const container = document.getElementById('anime-container');
+    container.innerHTML = '';
+    
+    // THIS IS THE LOOP:
+    list.forEach(anime => {
+        const isSaved = watchlist.includes(anime.mal_id);
+        
+        // FIX: Prioritize English Title
+        const displayTitle = anime.title_english || anime.title;
+        
+        const genres = anime.genres.slice(0, 3).map(g => `<span class="bg-indigo-500/20 text-indigo-300 text-[10px] px-2 py-0.5 rounded mr-1">${g.name}</span>`).join('');
+        const ratingBadge = anime.rating ? anime.rating.split(' ')[0] : 'TBA';
+        const score = anime.score ? (anime.score / 2).toFixed(1) : '0.0';
+        const countdown = getCountdown(anime.aired.from);
+        
+        container.innerHTML += `
+            <div class="anime-card bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-xl flex flex-col relative">
+                <button onclick="toggleWatchlist(${anime.mal_id})" class="absolute top-3 right-3 z-20 bg-black/60 p-2 rounded-full shadow-lg hover:scale-110 transition-transform">
+                    <i class="fa${isSaved ? 's' : 'r'} fa-heart ${isSaved ? 'text-red-500' : 'text-white'}"></i>
+                </button>
+                <div class="relative h-64 overflow-hidden">
+                    <img src="${anime.images.jpg.large_image_url}" class="w-full h-full object-cover" loading="lazy">
+                    <div class="absolute top-2 left-2 flex gap-1 z-10">
+                        <div class="bg-indigo-600 text-[10px] font-bold px-2 py-1 rounded shadow-md uppercase">${anime.type || 'TV'}</div>
+                        <div class="bg-slate-800/90 text-[10px] font-bold px-2 py-1 rounded shadow-md text-slate-300 border border-slate-700">${ratingBadge}</div>
+                    </div>
+                    ${countdown ? `<div class="absolute bottom-2 right-2 bg-emerald-500 text-black text-[10px] font-black px-2 py-1 rounded shadow-lg animate-pulse">${countdown}</div>` : ''}
+                    <div class="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-slate-950 to-transparent">
+                        <div class="flex flex-wrap">${genres}</div>
+                    </div>
+                </div>
+                <div class="p-4 flex flex-col flex-grow">
+                    <h3 class="font-bold text-lg mb-2 line-clamp-1 text-white" title="${displayTitle}">${displayTitle}</h3>
+                    
+                    <div class="space-y-1 mb-4 text-sm">
+                        <p>📅 <span class="text-slate-400">Release:</span> ${formatDate(anime.aired.from)}</p>
+                        <p>⭐ <span class="text-slate-400">Studio:</span> ${anime.studios[0]?.name || 'TBA'}</p>
+                        <div class="flex items-center gap-1">
+                            <span class="text-slate-400 text-xs">✨ Rating:</span> 
+                            <div class="flex text-[10px] gap-0.5 ml-1">${generateStars(score)}</div>
+                            <span class="text-xs font-bold text-indigo-300 ml-1">${score}/5</span>
+                        </div>
+                    </div>
+                    <p class="text-xs text-slate-500 line-clamp-3 mb-4 italic">${anime.synopsis || 'No description available.'}</p>
+                    <a href="${anime.url}" target="_blank" class="mt-auto block text-center bg-slate-800 hover:bg-slate-700 py-2.5 rounded-lg text-sm font-bold transition-all text-white border border-slate-700">View Details</a>
+                </div>
+            </div>
+        `;
+    });
+}
+
+        function toggleWatchlist(id) {
+            const index = watchlist.indexOf(id);
+            index > -1 ? watchlist.splice(index, 1) : watchlist.push(id);
+            localStorage.setItem('animeWatchlist', JSON.stringify(watchlist));
+            applyFilters();
+        }
+
+        function toggleWatchlistMode() {
+            watchlistOnly = !watchlistOnly;
+            const btn = document.getElementById('watchlistBtn');
+            btn.classList.toggle('bg-red-600', watchlistOnly);
+            btn.classList.toggle('bg-slate-800', !watchlistOnly);
+            applyFilters();
+        }
+
+        function applyFilters() {
+            const search = document.getElementById('searchInput').value.toLowerCase();
+            const genre = document.getElementById('genreFilter').value;
+            const filtered = allAnime.filter(a => {
+                const matchesSearch = a.title.toLowerCase().includes(search);
+                const matchesGenre = genre === 'all' || a.genres.some(g => g.name === genre);
+                const matchesWatchlist = !watchlistOnly || watchlist.includes(a.mal_id);
+                return matchesSearch && matchesGenre && matchesWatchlist;
+            });
+            renderAnime(filtered);
+        }
+
+        function changeSeason(type, btn) {
+            document.querySelectorAll('nav button').forEach(b => b.classList.remove('active-tab', 'text-indigo-400'));
+            document.querySelectorAll('nav button').forEach(b => b.classList.add('text-slate-500'));
+            btn.classList.add('active-tab', 'text-indigo-400');
+            loadData(type);
+        }
+
+        document.getElementById('searchInput').addEventListener('input', applyFilters);
+        document.getElementById('genreFilter').addEventListener('change', applyFilters);
+        init();
+    </script>
+</body>
+</html>
